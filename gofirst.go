@@ -18,6 +18,7 @@ func waitAndReap(cmd *exec.Cmd) {
 		pid, err := syscall.Wait4(-1, &status, 0, nil)
 		// If no more children exist this should return an error.
 		if err != nil {
+            // @todo: no fatal if the error is no children
 			log.Fatal(err)
 			break
 		}
@@ -30,7 +31,7 @@ func waitAndReap(cmd *exec.Cmd) {
 }
 
 // Installs the signal handler, trapping SiGINT, SIGTERM and SIGHUP
-// We're not bothering about SIGKILL as we can catch it anyways.
+// We're not bothering about SIGKILL as we can't catch it anyways.
 func installSignalHandler(cmd *exec.Cmd, timeout int) chan os.Signal {
 	c := make(chan os.Signal, 2)
 	signal.Notify(c,
