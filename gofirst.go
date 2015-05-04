@@ -11,21 +11,28 @@ import (
 
 // Waits for the command to finish execution and reaps any child other
 // child process that comes along.
-func waitAndReap(cmd *exec.Cmd) {
+func waitAndReap(cmd *exec.Cmd, timeout int) {
 	var status syscall.WaitStatus
 	for {
 		// Wait for any process, not just the command.
 		pid, err := syscall.Wait4(-1, &status, 0, nil)
-		// If no more children exist this should return an error.
 		if err != nil {
-            // @todo: no fatal if the error is no children
-			log.Fatal(err)
-			break
+			if err == syscall.ECHILD {
+				// No more children so we can stop waiting and return
+				break
+			}
+			log.Fatal("Error: ", err, "(",int(err.(syscall.Errno)), ")")
 		}
 		if cmd.Process.Pid == pid {
-			log.Print("Command completed with status ", status)
+			log.Print("Command completed with status: ", status)
+			// If we have not exited by then, send sigterm to ourselves.
+			go func() {
+				time.Sleep(time.Duration(timeout) * time.Second)
+				log.Print("Sending SIGTERM, children have not finished yet.")
+				syscall.Kill(os.Getpid(), syscall.SIGTERM)
+			}()
 		} else {
-			log.Print("Reaped child with pid ", pid, " status : ", status)
+			log.Print("Reaped child with pid ", pid, " status: ", status)
 		}
 	}
 }
@@ -48,12 +55,12 @@ func signalHandler(cmd *exec.Cmd, c chan os.Signal, timeout int) {
 		switch sig {
 		case syscall.SIGINT, syscall.SIGHUP:
 			// Just pass it along
-			log.Print("Received ", sig)
 			cmd.Process.Signal(sig)
 		case syscall.SIGTERM:
 			// Send signal for brutal kill after timeout
 			go func() {
 				time.Sleep(time.Duration(timeout) * time.Second)
+				log.Print("Killing remaining children.")
 				syscall.Kill(os.Getpid(), syscall.SIGUSR1)
 			}()
 			// Send SIGTERM to all children for graceful shutdown
@@ -77,10 +84,12 @@ func startProcess() *exec.Cmd {
 		log.Fatal(err)
 	}
 
-    return cmd
+	return cmd
 }
 
 func main() {
+	log.SetPrefix("[gofirst] ")
+
 	if len(os.Args) == 1 {
 		log.Fatal("No command supplied.")
 	}
@@ -94,7 +103,6 @@ func main() {
 	// Make sure to terminate the handler when we're done
 	defer close(c)
 
-	// Wait until we're done while reaping and process that comes along
-	waitAndReap(cmd)
-
+	// Wait until we're done while reaping any process that comes along
+	waitAndReap(cmd, 10)
 }
