@@ -25,11 +25,13 @@ func waitAndReap(cmd *exec.Cmd, timeout int) {
         }
         if cmd.Process.Pid == pid {
             log.Print("Command completed with status: ", status)
-            // If we have not exited by then, send sigterm to ourselves.
+            // Terminate any other children, as the main command has exited.
+            syscall.Kill(-1, syscall.SIGTERM)
+            // And add a kill safeguard.
             go func() {
                 time.Sleep(time.Duration(timeout) * time.Second)
-                log.Print("Sending SIGTERM, children have not finished yet.")
-                syscall.Kill(os.Getpid(), syscall.SIGTERM)
+                log.Print("Killing remaining children.")
+                syscall.Kill(os.Getpid(), syscall.SIGUSR1)
             }()
         } else {
             log.Print("Reaped child with pid ", pid, " status: ", status)
@@ -39,36 +41,26 @@ func waitAndReap(cmd *exec.Cmd, timeout int) {
 
 // Installs the signal handler, trapping SiGINT, SIGTERM and SIGHUP
 // We're not bothering about SIGKILL as we can't catch it anyways.
-func installSignalHandler(cmd *exec.Cmd, timeout int) chan os.Signal {
+func installSignalHandler(cmd *exec.Cmd) chan os.Signal {
     c := make(chan os.Signal, 2)
     signal.Notify(c,
-        syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGUSR1)
-    go signalHandler(cmd, c, timeout)
+        syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGUSR1, syscall.SIGQUIT)
+    go signalHandler(cmd, c)
     return c
 }
 
-// Waits for signals to arrive and transmits them to the running command
-// In case of SIGTERM it will broadcast is to any process it can, and
-// finally send SIGKILL if we have not yet exited before then.
-func signalHandler(cmd *exec.Cmd, c chan os.Signal, timeout int) {
+// Broadcast received signals to all processes, SIGUSR1 triggers a kill signal
+func signalHandler(cmd *exec.Cmd, c chan os.Signal) {
     for sig := range c {
         switch sig {
-        case syscall.SIGINT, syscall.SIGHUP:
-            // Just pass it along
-            cmd.Process.Signal(sig)
-        case syscall.SIGTERM:
-            // Send signal for brutal kill after timeout
-            go func() {
-                time.Sleep(time.Duration(timeout) * time.Second)
-                log.Print("Killing remaining children.")
-                syscall.Kill(os.Getpid(), syscall.SIGUSR1)
-            }()
-            // Send SIGTERM to all children for graceful shutdown
-            syscall.Kill(-1, syscall.SIGTERM)
-        case syscall.SIGUSR1:
-            // Kill everything and exit the handler
-            syscall.Kill(-1, syscall.SIGKILL)
-            return
+            case syscall.SIGUSR1:
+                // Kill everything and exit the handler
+                syscall.Kill(-1, syscall.SIGKILL)
+                return
+            default:
+                // Broadcast the signal to all processes
+                log.Print("Received signal ", sig)
+                syscall.Kill(-1, sig.(syscall.Signal))
         }
     }
 }
@@ -98,11 +90,11 @@ func main() {
     cmd := startProcess()
 
     // Trap and handle signals
-    c := installSignalHandler(cmd, 30)
+    c := installSignalHandler(cmd)
 
     // Make sure to terminate the handler when we're done
     defer close(c)
 
     // Wait until we're done while reaping any process that comes along
-    waitAndReap(cmd, 10)
+    waitAndReap(cmd, 30)
 }

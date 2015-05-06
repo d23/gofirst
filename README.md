@@ -1,13 +1,13 @@
 Gofirst - PID 1 process for Docker containers.
 ==============================================
 
-Wrapper to take the pid 1 responsibility from arbitrary programs running as
-entrypoint or command in your docker containers.
+Wrapper to take the pid 1 responsibility from programs running as entrypoint or
+command in your docker containers.
 
 Takes care of:
 * Reaping of orphaned processes
-* Terminating any orphaned processes when main process dies or SIGTERM is recieved.
-* Relay SIGINT to main process.
+* Terminating any orphaned processes, when main process dies.
+* Relay signals to running processes (so ^C will work!)
 
 For more information see the phusion blog[1] and their my_init script. This is
 similar but simpler and without dependencies.
@@ -25,10 +25,14 @@ or
 
 
 Gofirst will execute the command with the arguments supplied.
-As soon as that process dies, it will send SIGTERM
-to any remaining children after 10 seconds. Any recieved SIGTERM will be
-broadcasted immediately. In either case, it will send SIGKILL 30 seconds after
-that.
+SIGTERM, SIGHUP, SIGINT and SIGQUIT are relayed to any running process willing
+to listen. As soon as the main process dies, SIGTERM is broadcast, and after 30
+seconds SIGKILL is sent to any remaining processes. Gofirst will terminate as
+soon as no children are alive.
+
+This fits nicely with a one app, one container philosophy, and makes signals
+behave like expected. If that's not what you're doing, you might consider a
+proper init system, like runit or others.
 
 Issues
 ------
