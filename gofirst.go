@@ -7,7 +7,17 @@ import (
     "os/signal"
     "syscall"
     "time"
+    "flag"
+    "fmt"
 )
+
+func debugMsg(msg ...interface{}) {
+    if *debug == true {
+        log.Print(msg...)
+    }
+}
+
+var debug = flag.Bool("debug", false, "Show debug messages")
 
 // Waits for the command to finish execution and reaps any child other
 // child process that comes along.
@@ -17,24 +27,24 @@ func waitAndReap(cmd *exec.Cmd, timeout int) {
         // Wait for any process, not just the command.
         pid, err := syscall.Wait4(-1, &status, 0, nil)
         if err != nil {
+            // Stop waiting and return if there are no more children
             if err == syscall.ECHILD {
-                // No more children so we can stop waiting and return
                 break
             }
             log.Fatal("Error: ", err, "(",int(err.(syscall.Errno)), ")")
         }
         if cmd.Process.Pid == pid {
-            log.Print("Command completed with status: ", status)
+            debugMsg("Command completed with status: ", status)
             // Terminate any other children, as the main command has exited.
             syscall.Kill(-1, syscall.SIGTERM)
             // And add a kill safeguard.
             go func() {
                 time.Sleep(time.Duration(timeout) * time.Second)
-                log.Print("Killing remaining children.")
+                debugMsg("Killing remaining children.")
                 syscall.Kill(os.Getpid(), syscall.SIGUSR1)
             }()
         } else {
-            log.Print("Reaped child with pid ", pid, " status: ", status)
+            debugMsg("Reaped child with pid ", pid, " status: ", status)
         }
     }
 }
@@ -55,19 +65,21 @@ func signalHandler(cmd *exec.Cmd, c chan os.Signal) {
         switch sig {
             case syscall.SIGUSR1:
                 // Kill everything and exit the handler
+                debugMsg("Broadcasting SIGKILL.")
                 syscall.Kill(-1, syscall.SIGKILL)
                 return
             default:
                 // Broadcast the signal to all processes
-                log.Print("Received signal ", sig)
+                debugMsg("Broadcasting ", sig)
                 syscall.Kill(-1, sig.(syscall.Signal))
         }
     }
 }
 
 // Run the process, route it's input and output to standard channels
-func startProcess() *exec.Cmd {
-    cmd := exec.Command(os.Args[1], os.Args[2:]...)
+func startProcess(args []string) *exec.Cmd {
+    debugMsg("Starting command: ", args)
+    cmd := exec.Command(args[0], args[1:]...)
     cmd.Stdin = os.Stdin
     cmd.Stdout = os.Stdout
     cmd.Stderr = os.Stderr
@@ -82,12 +94,20 @@ func startProcess() *exec.Cmd {
 func main() {
     log.SetPrefix("[gofirst] ")
 
-    if len(os.Args) == 1 {
-        log.Fatal("No command supplied.")
+    flag.Usage = func() {
+        fmt.Fprintf(os.Stderr, "Usage: %s [options] [--] command\nOptions:\n", os.Args[0])
+        flag.PrintDefaults()
+    }
+
+    flag.Parse()
+    args := flag.Args()
+
+    if len(args) == 0 {
+        log.Fatal("No command supplied. ", args)
     }
 
     // Start the process
-    cmd := startProcess()
+    cmd := startProcess(args)
 
     // Trap and handle signals
     c := installSignalHandler(cmd)
