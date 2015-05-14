@@ -18,6 +18,7 @@ func debugMsg(msg ...interface{}) {
 }
 
 var debug = flag.Bool("debug", false, "Show debug messages")
+var timeout = flag.Int("timeout", 10, "Time to allow processes to gracefully terminate")
 
 // Waits for the command to finish execution and reaps any child other
 // child process that comes along.

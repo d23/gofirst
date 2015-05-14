@@ -26,9 +26,9 @@ or
 
 Gofirst will execute the command with the arguments supplied.
 SIGTERM, SIGHUP, SIGINT and SIGQUIT are relayed to any running process willing
-to listen. As soon as the main process dies, SIGTERM is broadcast, and after 30
+to listen. As soon as the main process exits, SIGTERM is broadcast, and after 10
 seconds SIGKILL is sent to any remaining processes. Gofirst will terminate as
-soon as no children are alive.
+soon as all children have terminated.
 
 This fits nicely with a one app, one container philosophy, and makes signals
 behave like expected. If that's not what you're doing, you might consider a
