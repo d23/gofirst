@@ -2,12 +2,12 @@ FROM debian:jessie
 
 # Install packages.
 RUN apt-get update && apt-get -y install \
-  build-essential \
+  build-essential procps net-tools vim git \
   golang
 
-RUN apt-get -y install procps net-tools vim
+RUN mkdir /opt/gopath
+ENV GOPATH=/opt/gopath
 
 VOLUME /opt/gofirst/
 WORKDIR /opt/gofirst/
-
-CMD ["/usr/bin/go", "build"]
+CMD ["./build.sh"]
